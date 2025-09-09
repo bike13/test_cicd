@@ -1,1 +1,1 @@
-https://gitlab.cn/docs/jh/ci/quick_start/#ensure-you-have-runners-available
+https://gitlab.cn/docs/jh/ci/quick_start/#prerequisites
