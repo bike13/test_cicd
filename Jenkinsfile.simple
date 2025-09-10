@@ -1,0 +1,67 @@
+pipeline {
+    agent any
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo '检出代码...'
+                checkout scm
+            }
+        }
+        
+        stage('Validate') {
+            steps {
+                echo '验证文件...'
+                sh '''
+                    echo "检查文件结构..."
+                    ls -la
+                    
+                    echo "检查HTML文件..."
+                    if [ -f "static/chat.html" ]; then
+                        echo "✓ HTML文件存在"
+                        if grep -q "Hello World" static/chat.html; then
+                            echo "✓ Hello World内容存在"
+                        else
+                            echo "✗ Hello World内容不存在"
+                            exit 1
+                        fi
+                    else
+                        echo "✗ HTML文件不存在"
+                        exit 1
+                    fi
+                '''
+            }
+        }
+        
+        stage('Deploy') {
+            steps {
+                echo '部署文件...'
+                sh '''
+                    echo "创建部署目录..."
+                    mkdir -p /tmp/hello-world-deploy
+                    
+                    echo "复制文件..."
+                    cp -r static /tmp/hello-world-deploy/
+                    
+                    echo "验证部署..."
+                    if [ -f "/tmp/hello-world-deploy/static/chat.html" ]; then
+                        echo "✓ 部署成功"
+                        echo "📁 部署路径: /tmp/hello-world-deploy/static/chat.html"
+                    else
+                        echo "✗ 部署失败"
+                        exit 1
+                    fi
+                '''
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo '🎉 部署成功！'
+        }
+        failure {
+            echo '❌ 部署失败！'
+        }
+    }
+}

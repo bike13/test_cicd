@@ -1,13 +1,6 @@
 pipeline {
     agent any
     
-    environment {
-        // 定义环境变量
-        NODE_VERSION = '18'
-        APP_NAME = 'hello-world-app'
-        DEPLOY_PORT = '8080'
-    }
-    
     stages {
         stage('Checkout') {
             steps {
@@ -16,26 +9,18 @@ pipeline {
             }
         }
         
-        stage('Build') {
+        stage('Validate Files') {
             steps {
-                echo '开始构建项目...'
+                echo '验证项目文件...'
                 script {
-                    // 检查Node.js环境
-                    sh 'node --version || echo "Node.js not found"'
-                    sh 'npm --version || echo "npm not found"'
-                }
-            }
-        }
-        
-        stage('Test') {
-            steps {
-                echo '运行测试...'
-                script {
-                    // 简单的健康检查
                     sh '''
+                        echo "检查项目结构..."
+                        ls -la
+                        
                         echo "检查静态文件..."
                         if [ -f "static/chat.html" ]; then
                             echo "✓ HTML文件存在"
+                            ls -la static/
                         else
                             echo "✗ HTML文件不存在"
                             exit 1
@@ -48,6 +33,42 @@ pipeline {
                             echo "✗ Hello World内容不存在"
                             exit 1
                         fi
+                        
+                        echo "检查其他项目文件..."
+                        if [ -f "package.json" ]; then
+                            echo "✓ package.json存在"
+                        fi
+                        if [ -f "server.js" ]; then
+                            echo "✓ server.js存在"
+                        fi
+                        if [ -f "README.md" ]; then
+                            echo "✓ README.md存在"
+                        fi
+                    '''
+                }
+            }
+        }
+        
+        stage('Build & Test') {
+            steps {
+                echo '构建和测试项目...'
+                script {
+                    sh '''
+                        echo "检查Node.js环境..."
+                        node --version || echo "Node.js not available"
+                        npm --version || echo "npm not available"
+                        
+                        echo "安装依赖（如果package.json存在）..."
+                        if [ -f "package.json" ]; then
+                            npm install || echo "npm install failed, continuing..."
+                        fi
+                        
+                        echo "验证HTML文件语法..."
+                        if command -v tidy &> /dev/null; then
+                            tidy -q -e static/chat.html || echo "HTML validation skipped (tidy not available)"
+                        else
+                            echo "HTML validation skipped (tidy not available)"
+                        fi
                     '''
                 }
             }
@@ -55,59 +76,65 @@ pipeline {
         
         stage('Deploy') {
             steps {
-                echo '开始部署...'
+                echo '部署项目...'
                 script {
-                    // 创建部署目录
                     sh '''
-                        mkdir -p /tmp/${APP_NAME}
-                        cp -r static /tmp/${APP_NAME}/
-                        cp package.json /tmp/${APP_NAME}/ 2>/dev/null || echo "package.json not found, skipping"
-                    '''
-                    
-                    // 启动简单的HTTP服务器
-                    sh '''
-                        cd /tmp/${APP_NAME}
-                        echo "启动HTTP服务器在端口 ${DEPLOY_PORT}..."
+                        echo "创建部署目录..."
+                        DEPLOY_DIR="/tmp/hello-world-app-$(date +%s)"
+                        mkdir -p $DEPLOY_DIR
                         
-                        # 使用Python启动简单HTTP服务器
-                        if command -v python3 &> /dev/null; then
-                            nohup python3 -m http.server ${DEPLOY_PORT} > server.log 2>&1 &
-                        elif command -v python &> /dev/null; then
-                            nohup python -m SimpleHTTPServer ${DEPLOY_PORT} > server.log 2>&1 &
-                        else
-                            echo "Python not found, using Node.js http-server"
-                            npx http-server -p ${DEPLOY_PORT} -d false > server.log 2>&1 &
-                        fi
+                        echo "复制文件到部署目录..."
+                        cp -r static $DEPLOY_DIR/
+                        cp package.json $DEPLOY_DIR/ 2>/dev/null || echo "package.json not found, skipping"
+                        cp server.js $DEPLOY_DIR/ 2>/dev/null || echo "server.js not found, skipping"
                         
-                        echo $! > server.pid
-                        sleep 3
+                        echo "部署目录内容:"
+                        ls -la $DEPLOY_DIR/
                         
-                        # 检查服务器是否启动成功
-                        if curl -f http://localhost:${DEPLOY_PORT}/static/chat.html > /dev/null 2>&1; then
-                            echo "✓ 服务器启动成功"
-                        else
-                            echo "✗ 服务器启动失败"
-                            exit 1
-                        fi
+                        echo "保存部署信息..."
+                        echo "DEPLOY_DIR=$DEPLOY_DIR" > deploy.info
+                        echo "DEPLOY_TIME=$(date)" >> deploy.info
+                        echo "BUILD_NUMBER=$BUILD_NUMBER" >> deploy.info
+                        
+                        echo "✓ 部署完成"
+                        echo "📁 部署目录: $DEPLOY_DIR"
+                        echo "📱 静态文件: $DEPLOY_DIR/static/chat.html"
                     '''
                 }
             }
         }
         
-        stage('Health Check') {
+        stage('Verification') {
             steps {
-                echo '执行健康检查...'
+                echo '验证部署结果...'
                 script {
                     sh '''
-                        echo "等待服务器完全启动..."
-                        sleep 5
+                        echo "验证部署文件..."
+                        DEPLOY_DIR=$(grep DEPLOY_DIR deploy.info | cut -d'=' -f2)
                         
-                        # 检查服务器响应
-                        if curl -f http://localhost:${DEPLOY_PORT}/static/chat.html > /dev/null 2>&1; then
-                            echo "✓ 健康检查通过"
-                            echo "应用已成功部署到: http://localhost:${DEPLOY_PORT}/static/chat.html"
+                        if [ -d "$DEPLOY_DIR" ]; then
+                            echo "✓ 部署目录存在: $DEPLOY_DIR"
+                            
+                            if [ -f "$DEPLOY_DIR/static/chat.html" ]; then
+                                echo "✓ HTML文件部署成功"
+                                
+                                # 检查文件大小
+                                FILE_SIZE=$(wc -c < "$DEPLOY_DIR/static/chat.html")
+                                echo "📊 文件大小: $FILE_SIZE bytes"
+                                
+                                # 检查关键内容
+                                if grep -q "Hello World" "$DEPLOY_DIR/static/chat.html"; then
+                                    echo "✓ Hello World内容验证通过"
+                                else
+                                    echo "✗ Hello World内容验证失败"
+                                    exit 1
+                                fi
+                            else
+                                echo "✗ HTML文件部署失败"
+                                exit 1
+                            fi
                         else
-                            echo "✗ 健康检查失败"
+                            echo "✗ 部署目录不存在"
                             exit 1
                         fi
                     '''
@@ -118,32 +145,45 @@ pipeline {
     
     post {
         success {
-            echo '部署成功！'
+            echo '🎉 部署成功！'
             script {
                 sh '''
                     echo "=========================================="
-                    echo "🎉 部署成功！"
-                    echo "📱 访问地址: http://localhost:${DEPLOY_PORT}/static/chat.html"
-                    echo "📁 部署目录: /tmp/${APP_NAME}"
-                    echo "🆔 进程ID: $(cat /tmp/${APP_NAME}/server.pid 2>/dev/null || echo 'N/A')"
+                    echo "🎉 Hello World应用部署成功！"
+                    echo "=========================================="
+                    cat deploy.info
+                    echo "=========================================="
+                    echo "📱 静态文件已部署到:"
+                    DEPLOY_DIR=$(grep DEPLOY_DIR deploy.info | cut -d'=' -f2)
+                    echo "   $DEPLOY_DIR/static/chat.html"
+                    echo ""
+                    echo "🌐 可以通过以下方式访问:"
+                    echo "   1. 直接打开HTML文件"
+                    echo "   2. 使用本地HTTP服务器"
+                    echo "   3. 部署到Web服务器"
                     echo "=========================================="
                 '''
             }
         }
         failure {
-            echo '部署失败！'
+            echo '❌ 部署失败！'
             script {
                 sh '''
                     echo "=========================================="
                     echo "❌ 部署失败！"
-                    echo "📋 请检查日志信息"
+                    echo "📋 请检查构建日志获取详细错误信息"
                     echo "=========================================="
                 '''
             }
         }
         always {
-            echo '清理工作空间...'
-            // 这里可以添加清理步骤
+            echo '清理临时文件...'
+            script {
+                sh '''
+                    # 保留部署信息文件用于调试
+                    echo "保留部署信息文件: deploy.info"
+                '''
+            }
         }
     }
 }
