@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  hello-world-app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.hello-world.rule=Host(`localhost`)"
+      - "traefik.http.services.hello-world.loadbalancer.server.port=8080"
